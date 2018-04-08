@@ -40,8 +40,11 @@ from six.moves import queue
 
 # Audio recording parameters
 RATE = 16000
-CHUNK = int(RATE / 10)  # 100ms
+CHUNK = int(RATE / 20)  # 100ms
 
+stack = []
+word_queue = []
+functions = ["+", "-", "*", "/", "%", "push", "eval", "reset"]
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
@@ -108,6 +111,62 @@ class MicrophoneStream(object):
             yield b''.join(data)
 # [END audio_stream]
 
+def convert_keyword(value):
+    if value == "plus" or value == "add":
+        return "+"
+    elif value == "minus" or value == "subtract" or value == "sub":
+        return "-"
+    elif value == "times" or value == "multiply":
+        return "*"
+    elif value == "divide":
+        return "/"
+    elif value == "modulus" or value == "mod":
+        return "%"
+    else:
+        return value
+
+def is_int(value):
+    try:
+        int(value)
+        return True
+    except:
+        return False
+
+def is_function(value):
+    global functions
+    return (value in functions)
+
+def eval_top(stack):
+    """
+    Evaluates based on the top item of the stack.
+    If this is a number, the number gets returned.
+    If this is a function, the function gets evaluated with the result
+    put on the top of the stack.
+    """
+    if len(stack) > 0:
+        top = stack.pop()
+        if is_int(top):
+            return int(top)
+        elif is_function(top):
+            res = None
+            if top == "+":
+                res = eval_top(stack) + eval_top(stack)
+            elif top == "-":
+                res = eval_top(stack) - eval_top(stack)
+            elif top == "*":
+                res = eval_top(stack) * eval_top(stack)
+            elif top == "/":
+                res = eval_top(stack) / eval_top(stack)
+            elif top == "%":
+                res = eval_top(stack) % eval_top(stack)
+            else:
+                print("ERROR: invalid function, somehow.")
+            return res
+        else:
+            print("ERROR: invalid word. continuing with top of stack.")
+            eval_top(stack)
+    else:
+        print("ERROR: not enough arguments for eval.")
 
 def listen_print_loop(responses):
     """Iterates through server responses and prints them.
@@ -124,6 +183,8 @@ def listen_print_loop(responses):
     the next result to overwrite it, until the response is a final one. For the
     final one, print a newline to preserve the finalized transcription.
     """
+    global stack
+    global word_queue
     num_chars_printed = 0
     for response in responses:
         if not response.results:
@@ -154,6 +215,23 @@ def listen_print_loop(responses):
 
         else:
             print(transcript + overwrite_chars)
+            words = transcript.split()
+            words = [convert_keyword(word.lower()) for word in words]
+            words = [word for word in words if is_int(word) or is_function(word)]
+            if len(words) > 0:
+                if words[-1] == "push":
+                    words.pop()
+                    stack = stack + word_queue
+                    word_queue = []
+                elif words[-1] == "eval":
+                    words.pop()
+                    stack.append(str(eval_top(stack)))
+                elif words[-1] == "reset":
+                    word_queue = []
+                else:
+                    word_queue = word_queue + words
+                print("Stack: " + str(stack))
+                print("Word Queue: " + str(word_queue))
 
             # Exit recognition if any of the transcribed phrases could be
             # one of our keywords.
